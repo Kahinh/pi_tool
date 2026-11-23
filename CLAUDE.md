@@ -19,6 +19,8 @@ Windows overlay for Dofus Unity, Comte Harebourg fight: shows, per enemy, the ce
 - `./dev check` — lint+format, graph/layer check, tests. One line when green. Run before every commit.
 - `./dev render IMG` — calibrated grid drawn on a capture (needs sidecar .json).
 - `./dev affected` — only tests touched by current diff (fast loop). `./dev test ARGS` — pytest passthrough.
+- `./dev eval` — circles precision/recall + HP reads on annotated captures. `./dev digits` — learn HP digit templates (sets `validated` only if every capture reads back).
+- Vision tests without captures use `tests/synth.py` (synthetic floor/rings/heart).
 - Windows: `dev.cmd …`. Qt tests run offscreen on Linux (needs libegl1).
 - Entry points: `pi-tool` (app/main.py), `pi-tool-map CAPTURE` (map editor).
 - A hook auto-formats edited .py files and refreshes CODEGRAPH.md; it only speaks on errors.

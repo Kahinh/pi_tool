@@ -10,6 +10,7 @@ from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
 
 from pi_tool.app.controller import Controller, Win32Backend
 from pi_tool.app.settings import Settings
+from pi_tool.app.vision import Analyzer
 from pi_tool.core.map_model import load_map
 from pi_tool.platform import win32
 from pi_tool.platform.hotkeys import HotkeyManager
@@ -39,6 +40,8 @@ def build_tray(app: QApplication, ctrl: Controller) -> QSystemTrayIcon:
         ("grid_visible", "Quadrillage"),
         ("show_ids", "Identifiants de cellules"),
         ("hide_when_unfocused", "Masquer si Dofus inactif"),
+        ("vision_enabled", "Reconnaissance visuelle"),
+        ("debug_vision", "Debug vision (positions, PV, confiance)"),
     ):
         a = QAction(label, menu, checkable=True)
         a.triggered.connect(lambda _=False, at=attr: ctrl.toggle(at))
@@ -54,6 +57,8 @@ def build_tray(app: QApplication, ctrl: Controller) -> QSystemTrayIcon:
         op_menu.addAction(a)
     menu.addSeparator()
     menu.addAction("Calibrer…", ctrl.start_calibration)
+    menu.addAction("Zone PV (cœur)…", ctrl.start_hp_roi)
+    menu.addAction("Choisir mon personnage…", ctrl.start_pick_player)
     menu.addSeparator()
     menu.addAction("Quitter", app.quit)
 
@@ -77,12 +82,16 @@ def main() -> int:
     app.setQuitOnLastWindowClosed(False)
     settings = Settings.load()
     overlay = OverlayWindow()
-    ctrl = Controller(settings, Win32Backend(settings), overlay, load_map())
+    game_map = load_map()
+    ctrl = Controller(
+        settings, Win32Backend(settings), overlay, game_map, analyzer=Analyzer.default(game_map)
+    )
     ctrl.on_settings_changed = settings.save
 
     overlay.dragged.connect(ctrl.drag)
     overlay.wheeled.connect(ctrl.wheel)
     overlay.nudged.connect(ctrl.nudge)
+    overlay.clicked.connect(ctrl.click)
     overlay.accepted.connect(ctrl.accept_calibration)
     overlay.cancelled.connect(ctrl.cancel_calibration)
 
@@ -91,6 +100,9 @@ def main() -> int:
         "toggle_grid": lambda: ctrl.toggle("grid_visible"),
         "toggle_ids": lambda: ctrl.toggle("show_ids"),
         "calibrate": ctrl.start_calibration,
+        "toggle_debug": lambda: ctrl.toggle("debug_vision"),
+        "pick_player": ctrl.start_pick_player,
+        "calibrate_hp": ctrl.start_hp_roi,
         "quit": app.quit,
     }
     hotkeys = HotkeyManager()
@@ -108,6 +120,9 @@ def main() -> int:
     timer = QTimer()
     timer.timeout.connect(ctrl.tick)
     timer.start(settings.poll_ms)
+    vision_timer = QTimer()
+    vision_timer.timeout.connect(ctrl.vision_tick)
+    vision_timer.start(settings.vision_ms)
     app.aboutToQuit.connect(hotkeys.unregister_all)
     return app.exec()
 

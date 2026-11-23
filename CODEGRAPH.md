@@ -5,19 +5,27 @@ Read this instead of opening files. `path:line` for each symbol.
 ## pi_tool.__main__ — src/pi_tool/__main__.py
 uses: pi_tool.app.main
 ## pi_tool.app — src/pi_tool/app/__init__.py — Composition root: wires platform + vision + core, state/refresh loop, settings.
-## pi_tool.app.controller — src/pi_tool/app/controller.py — Overlay controller: follows the Dofus window, picks the calibration, rebuilds the scene.
-uses: pi_tool.app.settings, pi_tool.core, pi_tool.core.grid, pi_tool.core.map_model, pi_tool.core.scene, pi_tool.platform
-- :19 WHEEL_STEP = 1.02
-- :20 CALIB_HELP = 'Calibration : glisser = déplacer · molette = taille · Maj+m
-- :26 class WindowBackend(Protocol)
+## pi_tool.app.controller — src/pi_tool/app/controller.py — Overlay controller: follows the Dofus window, picks the calibration, runs vision, draws.
+uses: pi_tool.app.settings, pi_tool.core, pi_tool.core.combat, pi_tool.core.grid, pi_tool.core.map_model, pi_tool.core.scene, pi_tool.platform, pi_tool.platform.capture
+- :24 WHEEL_STEP = 1.02
+- :25 CALIB_HELP = 'Calibration : glisser = déplacer · molette = taille · Maj+m
+- :29 HP_HELP = 'Zone PV : encadrer le pourcentage du cœur · glisser = dépla
+- :33 PICK_HELP = 'Cliquer sur la case de VOTRE personnage · Échap = annuler'
+- :34 DEFAULT_ROI = (0.47, 0.86, 0.06, 0.06)
+- :37 class Analyzer(Protocol)
+  - .analyze(self, img: Any, cal: Calibration, hp_roi: Any, t: float) -> Frame
+  - .hp_debug(self) -> str
+- :42 class WindowBackend(Protocol)
   - .find_game(self) -> int | None
   - .is_window(self, hwnd: int) -> bool
   - .is_minimized(self, hwnd: int) -> bool
   - .client_rect(self, hwnd: int) -> win32.Rect | None
   - .foreground(self) -> int | None
-- :34 class Win32Backend
+  - .capture(self, hwnd: int, rect: win32.Rect, overlay_clean: bool) -> Any
+- :51 class Win32Backend
   - .find_game(self) -> int | None
-- :49 class Overlay(Protocol)
+  - .capture(self, hwnd: int, rect: win32.Rect, overlay_clean: bool)
+- :72 class Overlay(Protocol)
   - .set_shapes(self, shapes, banner=None) -> None
   - .place(self, rect) -> None
   - .show_overlay(self) -> None
@@ -25,23 +33,29 @@ uses: pi_tool.app.settings, pi_tool.core, pi_tool.core.grid, pi_tool.core.map_mo
   - .isVisible(self) -> bool
   - .set_input_enabled(self, on: bool) -> None
   - .winId(self)
-- :61 class Controller
+- :85 class Controller
+  - .calibrating(self) -> bool
   - .tick(self) -> None
   - .refresh(self) -> None
+  - .vision_tick(self) -> None
+  - .state(self)
   - .toggle(self, attr: str) -> None
   - .set_opacity(self, value: float) -> None
   - .start_calibration(self) -> None
   - .drag(self, dx: float, dy: float) -> None
   - .wheel(self, steps: int, x: float, y: float, shift: bool) -> None
   - .nudge(self, dx: int, dy: int) -> None
+  - .click(self, x: float, y: float) -> None
   - .accept_calibration(self) -> None
   - .cancel_calibration(self) -> None
+  - .start_hp_roi(self) -> None
+  - .start_pick_player(self) -> None
 ## pi_tool.app.main — src/pi_tool/app/main.py — Entry point `pi-tool`: overlay + window tracking + hotkeys + tray menu.
-uses: pi_tool.app.controller, pi_tool.app.settings, pi_tool.core.map_model, pi_tool.platform, pi_tool.platform.hotkeys, pi_tool.platform.overlay
+uses: pi_tool.app.controller, pi_tool.app.settings, pi_tool.app.vision, pi_tool.core.map_model, pi_tool.platform, pi_tool.platform.hotkeys, pi_tool.platform.overlay
 ext: PySide6.QtCore, PySide6.QtGui, PySide6.QtWidgets
-- :18 OPACITIES = (0.2, 0.35, 0.5, 0.6, 0.8, 1.0)
-- :33 def build_tray(app: QApplication, ctrl: Controller) -> QSystemTrayIcon
-- :74 def main() -> int
+- :19 OPACITIES = (0.2, 0.35, 0.5, 0.6, 0.8, 1.0)
+- :34 def build_tray(app: QApplication, ctrl: Controller) -> QSystemTrayIcon
+- :79 def main() -> int
 ## pi_tool.app.map_editor — src/pi_tool/app/map_editor.py — `pi-tool-map CAPTURE.png` — survey the Harebourg map on a real capture (V1.1 / V1.4).
 uses: pi_tool.core, pi_tool.core.grid, pi_tool.core.map_model, pi_tool.core.scene, pi_tool.platform.overlay
 ext: PySide6.QtCore, PySide6.QtGui, PySide6.QtWidgets
@@ -57,10 +71,17 @@ ext: PySide6.QtCore, PySide6.QtGui, PySide6.QtWidgets
 - :173 def main(argv: list[str] | None=None) -> int
 ## pi_tool.app.settings — src/pi_tool/app/settings.py — User settings + config paths (JSON in %APPDATA%/pi_tool, override with PI_TOOL_CONFIG).
 - :10 DEFAULT_HOTKEYS = {'toggle_overlay': 'Ctrl+Alt+O', 'toggle_grid': 'Ctrl+Alt+G'
-- :19 def config_dir() -> Path
-- :27 class Settings
+- :22 def config_dir() -> Path
+- :30 class Settings
   - .load(cls, path: Path | None=None) -> Settings
   - .save(self, path: Path | None=None) -> None
+## pi_tool.app.vision — src/pi_tool/app/vision.py — One capture -> one core.combat.Frame (V2.2 circles + V2.4 HP), with the raw OCR for debug.
+uses: pi_tool.core.combat, pi_tool.core.grid, pi_tool.core.map_model, pi_tool.vision, pi_tool.vision.circles
+ext: numpy
+- :17 class Analyzer
+  - .default(cls, game_map: MapModel) -> Analyzer
+  - .analyze(self, img: np.ndarray | None, cal: Calibration, hp_roi, t: float) -> Frame
+  - .hp_debug(self) -> str
 ## pi_tool.core — src/pi_tool/core/__init__.py — Pure logic: grid geometry, map model, PI engine. No I/O deps, no OS deps.
 ## pi_tool.core.calibration — src/pi_tool/core/calibration.py — Calibration profiles (V1.3): save per game-area size, rescale to other sizes, manual tweaks.
 uses: pi_tool.core.grid
@@ -79,6 +100,20 @@ uses: pi_tool.core.grid
 - :125 def load_profiles(path: Path) -> list[Profile]
 - :135 def from_annotation(ann: dict) -> tuple[Calibration | None, float | None] — Calibration of an annotated capture + max fit residual in px (None if not fitted).
 - :157 def to_annotation(cal: Calibration) -> dict
+## pi_tool.core.combat — src/pi_tool/core/combat.py — Combat state from successive vision frames (V2.3 player, V2.5 refresh + reliability).
+- :13 PLAYER_SOURCES = ('manual', 'tracked', 'single', 'cue')
+- :17 class Frame — One analysed capture. `ok=False` = capture failed/unusable (counts as no data).
+- :29 class TrackerConfig
+- :38 class CombatState
+  - .age(self, now: float) -> float | None
+- :53 EMPTY = CombatState()
+- :57 class CombatTracker
+  - .set_manual_player(self, cell: int | None) -> None
+  - .reset(self) -> None
+  - .update(self, f: Frame) -> None
+  - .confidence(self) -> float
+  - .state(self, now: float) -> CombatState
+- :161 def status_line(st: CombatState, now: float) -> str — Debug banner (V2.5): positions summary, HP read, confidence, age.
 ## pi_tool.core.grid — src/pi_tool/core/grid.py — Dofus isometric grid: cell id <-> map coords (x, y) <-> screen pixels.
 - :15 MAP_WIDTH = 14
 - :16 MAP_ROWS = 40
@@ -122,15 +157,30 @@ uses: pi_tool.core.grid
   - .load(cls, path: Path=RULES_PATH) -> Rules
 - :50 def target_cell(player: Coord, enemy: Coord, hp_pct: int, rules: Rules) -> TargetResult — Cell to aim at so that the PI-transformed hit lands on `enemy`. (V3.2)
 ## pi_tool.core.scene — src/pi_tool/core/scene.py — Renderer-agnostic scene: list of shapes in screen px. Drawn by Qt (overlay) and cv2 (debug).
-uses: pi_tool.core.grid, pi_tool.core.map_model
-- :13 RGBA = tuple[int, int, int, int]
-- :17 class Shape
-- :27 class GridStyle
-- :34 FILL = {CellState.NORMAL: None, CellState.OBSTACLE: (213, 94, 0, 14
-- :41 OUTLINE = (255, 255, 255, 110)
-- :42 LOS_OUTLINE = (0, 0, 0, 220)
-- :49 def grid_scene(m: MapModel, cal: Calibration, style: GridStyle=GridStyle()) -> list[Shape]
+uses: pi_tool.core.combat, pi_tool.core.grid, pi_tool.core.map_model
+- :14 RGBA = tuple[int, int, int, int]
+- :18 class Shape
+- :28 class GridStyle
+- :35 FILL = {CellState.NORMAL: None, CellState.OBSTACLE: (213, 94, 0, 14
+- :42 OUTLINE = (255, 255, 255, 110)
+- :43 LOS_OUTLINE = (0, 0, 0, 220)
+- :50 def grid_scene(m: MapModel, cal: Calibration, style: GridStyle=GridStyle()) -> list[Shape]
+- :71 ALLY = (86, 180, 233, 230)
+- :72 ENEMY = (230, 60, 40, 230)
+- :73 PLAYER = (255, 255, 255, 255)
+- :74 ROI = (240, 228, 66, 230)
+- :77 def combat_scene(st: CombatState, cal: Calibration) -> list[Shape] — Detected fighters as thick cell outlines; the controlled player is labelled 'J'.
+- :96 def roi_shape(roi: tuple[float, float, float, float], w: float, h: float) -> Shape — HP zone (fractions of the client area) as a rectangle in client px.
 ## pi_tool.platform — src/pi_tool/platform/__init__.py — Windows-only: overlay window, game capture, window tracking, DPI. Import lazily.
+## pi_tool.platform.capture — src/pi_tool/platform/capture.py — Game capture without our overlay (V2.1). Reads pixels only; never touches the game.
+uses: pi_tool.platform
+ext: mss, numpy
+- :22 METHODS = ('auto', 'screen', 'window')
+- :26 def usable(frame: np.ndarray | None) -> bool — Reject empty / black frames (minimised, occluded DWM surface, failed PrintWindow).
+- :31 def grab_screen(rect: win32.Rect) -> np.ndarray | None
+- :58 def grab_window(hwnd: int, size: tuple[int, int]) -> np.ndarray | None
+- :91 class Capturer — Picks the method; `last_method` / `last_error` feed the debug banner.
+  - .grab(self, hwnd: int, rect: win32.Rect, overlay_clean: bool) -> np.ndarray | None
 ## pi_tool.platform.hotkeys — src/pi_tool/platform/hotkeys.py — Global hotkeys via RegisterHotKey + Qt native event filter. Observes keys only.
 uses: pi_tool.platform
 ext: PySide6.QtCore
@@ -142,10 +192,10 @@ ext: PySide6.QtCore
 ## pi_tool.platform.overlay — src/pi_tool/platform/overlay.py — Transparent, topmost, click-through overlay window (V1.2) drawing a core.scene.
 uses: pi_tool.core.scene, pi_tool.platform
 ext: PySide6.QtCore, PySide6.QtGui, PySide6.QtWidgets
-- :17 _BASE_FLAGS = Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStay
-- :23 _PASSIVE_FLAGS = Qt.WindowType.WindowTransparentForInput | Qt.WindowType.Wind
-- :30 def paint_shapes(p: QPainter, shapes: list[Shape]) -> None — Draw scene shapes with an already-configured painter (px = painter units).
-- :45 class OverlayWindow(QWidget)
+- :18 _BASE_FLAGS = Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStay
+- :24 _PASSIVE_FLAGS = Qt.WindowType.WindowTransparentForInput | Qt.WindowType.Wind
+- :31 def paint_shapes(p: QPainter, shapes: list[Shape]) -> None — Draw scene shapes with an already-configured painter (px = painter units).
+- :46 class OverlayWindow(QWidget)
   - .input_enabled(self) -> bool
   - .set_shapes(self, shapes: list[Shape], banner: str | None=None) -> None
   - .place(self, rect: win32.Rect) -> None
@@ -154,7 +204,7 @@ ext: PySide6.QtCore, PySide6.QtGui, PySide6.QtWidgets
   - .paintEvent(self, _event) -> None
   - .mousePressEvent(self, e) -> None
   - .mouseMoveEvent(self, e) -> None
-  - .mouseReleaseEvent(self, _e) -> None
+  - .mouseReleaseEvent(self, e) -> None
   - .wheelEvent(self, e) -> None
   - .keyPressEvent(self, e) -> None
 ## pi_tool.platform.win32 — src/pi_tool/platform/win32.py — Thin ctypes wrappers over Win32 (no pywin32). Every function is a safe no-op off Windows.
@@ -185,6 +235,33 @@ ext: PySide6.QtCore, PySide6.QtGui, PySide6.QtWidgets
 - :150 def hotkey_id_from_msg(message_ptr: int) -> int | None — WM_HOTKEY id from a native MSG*, else None.
 - :158 def parse_hotkey(spec: str) -> tuple[int, int] — 'Ctrl+Alt+G' -> (mods, vk). Letters, digits, F1-F12.
 ## pi_tool.vision — src/pi_tool/vision/__init__.py — Image analysis (numpy/OpenCV): circle detection, HP OCR. Input = BGR ndarray. No OS deps.
+## pi_tool.vision.circles — src/pi_tool/vision/circles.py — Team circles under fighters (V2.2): blue = allies, red = enemies.
+uses: pi_tool.core.grid
+ext: cv2, numpy
+- :24 TEAMS = ('ally', 'enemy')
+- :35 class CircleParams
+- :47 class Detection
+- :74 def ring_scores(img: np.ndarray, cal: Calibration, cells: Iterable[int], p: CircleParams=CircleParams()) -> dict[str, tuple[np.ndarray, np.ndarray, np.ndarray]] — Per team: (cells, ring coverage, outer coverage) arrays. Exposed for debug/eval.
+- :95 def detect_circles(img: np.ndarray, cal: Calibration, cells: Iterable[int], p: CircleParams=CircleParams()) -> list[Detection] — Fighters standing on `cells` (typically the walkable arena cells), best first.
+- :118 def split_teams(dets: list[Detection]) -> tuple[frozenset[int], frozenset[int]]
+## pi_tool.vision.hp_ocr — src/pi_tool/vision/hp_ocr.py — HP percentage read in the life heart (V2.4). Reads ONLY the "85 %" text, never absolute HP.
+ext: cv2, numpy
+- :19 GLYPHS = '0123456789%'
+- :20 SIDE = 24
+- :21 DATA_DIR = Path(__file__).resolve().parents[3] / 'data' / 'hp_digits'
+- :27 class OcrParams
+- :36 class Templates
+  - .complete(self) -> bool
+- :46 class HpRead
+- :53 def crop_roi(img: np.ndarray, roi: Roi) -> np.ndarray | None
+- :61 def text_mask(roi: np.ndarray, p: OcrParams=OcrParams()) -> np.ndarray
+- :77 def segment(roi: np.ndarray, p: OcrParams=OcrParams()) -> list[np.ndarray] — Glyphs left to right, normalised. Parts overlapping in x (e.g. '%') are merged.
+- :105 def classify(glyph: np.ndarray, t: Templates) -> tuple[str, float, float] — (label, score, margin to the second best label).
+- :114 def read_hp(roi: np.ndarray | None, t: Templates, p: OcrParams=OcrParams()) -> HpRead
+- :142 def learn(roi: np.ndarray, text: str, p: OcrParams=OcrParams()) -> dict[str, np.ndarray] — Glyph samples from a ROI whose content is known (e.g. '85%'). Raises on mismatch.
+- :151 def merge(samples: list[dict[str, np.ndarray]]) -> dict[str, np.ndarray] — Average the samples of each glyph.
+- :160 def save_templates(t: Templates, d: Path=DATA_DIR) -> None
+- :169 def load_templates(d: Path=DATA_DIR) -> Templates
 ## pi_tool.vision.render — src/pi_tool/vision/render.py — Draw a core.scene onto a BGR image (debug renders, comparison with real captures).
 uses: pi_tool.core.scene
 ext: cv2, numpy
@@ -193,9 +270,13 @@ ext: cv2, numpy
 
 ## tests
 - tests/test_calibration.py → pi_tool.core, pi_tool.core.grid
-- tests/test_controller.py → pi_tool.app.controller, pi_tool.app.settings, pi_tool.core, pi_tool.core.map_model
+- tests/test_capture.py → pi_tool.platform
+- tests/test_circles.py → pi_tool.core.calibration, pi_tool.core.grid, pi_tool.core.map_model, pi_tool.vision.circles
+- tests/test_combat.py → pi_tool.core.combat
+- tests/test_controller.py → pi_tool.app.controller, pi_tool.app.settings, pi_tool.app.vision, pi_tool.core, pi_tool.core.map_model, pi_tool.vision.hp_ocr
 - tests/test_core_data.py → pi_tool.core.map_model, pi_tool.core.pi_engine
 - tests/test_grid.py → pi_tool.core.grid
+- tests/test_hp_ocr.py → pi_tool.vision, pi_tool.vision.hp_ocr
 - tests/test_map_model.py → pi_tool.core.map_model
 - tests/test_qt.py → pi_tool.app.map_editor, pi_tool.core.grid, pi_tool.core.map_model, pi_tool.core.scene, pi_tool.platform.overlay
 - tests/test_scene.py → pi_tool.core.grid, pi_tool.core.map_model, pi_tool.core.scene

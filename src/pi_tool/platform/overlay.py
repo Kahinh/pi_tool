@@ -2,7 +2,8 @@
 
 Coordinates: shapes are in overlay-local PHYSICAL px (= game client px). Qt paints in
 logical px, so the painter is scaled by 1/devicePixelRatio.
-Input mode (calibration only, user-triggered): the window temporarily accepts mouse/keys.
+Input mode (calibration / HP zone / player pick, user-triggered): the window temporarily
+accepts mouse/keys. Our own window is excluded from screen captures (V2.1).
 """
 
 from __future__ import annotations
@@ -47,6 +48,7 @@ class OverlayWindow(QWidget):
     dragged = Signal(float, float)  # dx, dy
     wheeled = Signal(int, float, float, bool)  # steps, x, y, shift
     nudged = Signal(int, int)  # arrow keys
+    clicked = Signal(float, float)  # press+release without drag (player pick)
     accepted = Signal()
     cancelled = Signal()
 
@@ -60,6 +62,8 @@ class OverlayWindow(QWidget):
         self._banner: str | None = None
         self._input = False
         self._drag_from: QPointF | None = None
+        self._dragged = False
+        self.capture_excluded = False  # WDA_EXCLUDEFROMCAPTURE applied (V2.1)
         self._rect: win32.Rect | None = None
 
     # --- state -------------------------------------------------------------------------
@@ -89,7 +93,7 @@ class OverlayWindow(QWidget):
         self.show()
         hwnd = int(self.winId())
         win32.style_overlay(hwnd, click_through=not self._input)
-        win32.exclude_from_capture(hwnd)
+        self.capture_excluded = win32.exclude_from_capture(hwnd)
         if self._rect:
             win32.place_topmost(hwnd, self._rect)
 
@@ -135,15 +139,20 @@ class OverlayWindow(QWidget):
     def mousePressEvent(self, e) -> None:
         if self._input and e.button() == Qt.MouseButton.LeftButton:
             self._drag_from = e.position() * self._dpr()
+            self._dragged = False
 
     def mouseMoveEvent(self, e) -> None:
         if self._input and self._drag_from is not None:
             pos = e.position() * self._dpr()
             d = pos - self._drag_from
             self._drag_from = pos
+            self._dragged = True
             self.dragged.emit(d.x(), d.y())
 
-    def mouseReleaseEvent(self, _e) -> None:
+    def mouseReleaseEvent(self, e) -> None:
+        if self._input and self._drag_from is not None and not self._dragged:
+            pos = e.position() * self._dpr()
+            self.clicked.emit(pos.x(), pos.y())
         self._drag_from = None
 
     def wheelEvent(self, e) -> None:

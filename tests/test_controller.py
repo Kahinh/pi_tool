@@ -12,6 +12,7 @@ class FakeBackend:
     def __init__(self):
         self.exists, self.minimized, self.fg = True, False, GAME
         self.rect = (100, 50, 1920, 1080)
+        self.frame, self.clean = None, None
 
     def find_game(self):
         return GAME if self.exists else None
@@ -28,10 +29,15 @@ class FakeBackend:
     def foreground(self):
         return self.fg
 
+    def capture(self, hwnd, rect, overlay_clean):
+        self.clean = overlay_clean
+        return self.frame
+
 
 class FakeOverlay:
     def __init__(self):
         self.visible, self.input_enabled, self.rect = False, False, None
+        self.capture_excluded = True
         self.shapes, self.banner = [], None
 
     def set_shapes(self, shapes, banner=None):
@@ -142,3 +148,137 @@ def test_calibrating_survives_focus_loss(env):
     b.fg = 999
     c.tick()
     assert o.visible
+
+
+# --- V2: vision loop, debug, manual player, HP zone ----------------------------------------
+class Clock:
+    def __init__(self):
+        self.t = 0.0
+
+    def __call__(self):
+        return self.t
+
+
+@pytest.fixture
+def venv(tmp_path):
+    from pi_tool.app.vision import Analyzer
+    from pi_tool.vision.hp_ocr import Templates
+    from synth import BLUE, RED, floor, ring, sprite
+
+    b, o, clk = FakeBackend(), FakeOverlay(), Clock()
+    an = Analyzer(empty_map(), Templates({}))
+    c = Controller(Settings(), b, o, empty_map(), tmp_path / "calib.json", an, clk)
+    c.tick()
+    c.calibrated = True  # default calibration = the synthetic frame's grid
+
+    def draw(allies, enemies):
+        img = floor(1920, 1080)
+        for cells, col in ((allies, BLUE), (enemies, RED)):
+            for cell in cells:
+                ring(img, c.calib, cell, col)
+                sprite(img, c.calib, cell, cell)
+        b.frame = img
+
+    return c, b, o, clk, draw
+
+
+def run(c, clk, n=2, dt=0.25):
+    for _ in range(n):
+        clk.t += dt
+        c.vision_tick()
+
+
+def test_vision_loop_detects_and_debug_draws(venv):
+    c, b, o, clk, draw = venv
+    draw({242}, {330, 400})
+    c.s.debug_vision = True
+    run(c, clk)
+    st = c.state()
+    assert st.allies == {242} and st.enemies == {330, 400} and st.player == 242
+    assert b.clean is True  # overlay excluded from capture -> screen grab allowed
+    assert "joueur 242 (single)" in o.banner and "OCR PV" in o.banner
+    assert sum(1 for s in o.shapes if s.width >= 3) == 3
+
+
+def test_capture_failure_goes_stale_and_hidden(venv):
+    c, b, _o, clk, draw = venv
+    draw({242}, {330})
+    run(c, clk)
+    b.frame = None
+    run(c, clk, n=8)  # 2 s without usable frame
+    st = c.state()
+    assert not st.enemies and not st.allies
+
+
+def test_no_vision_when_uncalibrated_or_calibrating(venv):
+    c, _b, _o, clk, draw = venv
+    draw({242}, {330})
+    c.calibrated = False
+    run(c, clk)
+    assert c.tracker.state(clk.t).t is None
+    c.calibrated = True
+    c.start_calibration()
+    run(c, clk)
+    assert c.tracker.state(clk.t).t is None
+
+
+def test_wrong_size_frame_is_dropped(venv):
+    import numpy as np
+
+    c, b, _o, clk, _draw = venv
+    b.frame = np.full((500, 500, 3), 90, np.uint8)
+    run(c, clk)
+    assert c.tracker.state(clk.t).t is None
+
+
+def test_pick_player_mode(venv):
+    c, _b, o, clk, draw = venv
+    draw({242, 245, 300}, {330})
+    run(c, clk)
+    assert c.state().player is None  # 3 allies, no validated cue
+    c.start_pick_player()
+    assert o.input_enabled and "VOTRE personnage" in o.banner
+    c.click(*c.calib.cell_center(245))
+    assert not o.input_enabled and c.mode is None
+    run(c, clk, n=1)
+    assert (c.state().player, c.state().player_source) == (245, "manual")
+
+
+def test_hp_roi_mode_edit_accept_cancel(venv):
+    c, _, o, _, _ = venv
+    saved = []
+    c.on_settings_changed = lambda: saved.append(list(c.s.hp_roi))
+    c.start_hp_roi()
+    assert c.mode == "hp_roi" and o.input_enabled and "Zone PV" in o.banner
+    x0 = c.s.hp_roi[0]
+    c.drag(192, 0)  # 10 % of 1920
+    assert c.s.hp_roi[0] == pytest.approx(x0 + 0.1)
+    c.wheel(5, 0, 0, False)
+    assert c.s.hp_roi[2] > 0.06 and c.s.hp_roi[3] > 0.06
+    c.accept_calibration()
+    assert saved and c.mode is None and not o.input_enabled
+    kept = list(c.s.hp_roi)
+    c.start_hp_roi()
+    c.drag(100, 100)
+    c.cancel_calibration()
+    assert c.s.hp_roi == kept
+    assert c.calib is not None  # grid calibration untouched by the HP mode
+
+
+def test_hp_from_unvalidated_templates_never_reaches_state(venv):
+    from pi_tool.vision.hp_ocr import Templates, learn, merge
+    from synth import heart
+
+    c, b, _o, clk, draw = venv
+    draw({242}, set())
+    hrt = heart("85%", 1.0)
+    h, w = hrt.shape[:2]
+    b.frame[900 : 900 + h, 900 : 900 + w] = hrt
+    c.s.hp_roi = [900 / 1920, 900 / 1080, w / 1920, h / 1080]
+    glyphs = merge([learn(heart(t, 1.2), t) for t in ("12345%", "67890%")])
+    c.analyzer.templates = Templates(glyphs, validated=False)
+    run(c, clk)
+    assert c.analyzer.last_hp.value == 85 and c.state().hp_pct is None
+    c.analyzer.templates = Templates(glyphs, validated=True)
+    run(c, clk)
+    assert c.state().hp_pct == 85
