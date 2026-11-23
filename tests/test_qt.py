@@ -64,9 +64,23 @@ def test_overlay_input_mode_signals(qapp):
         Qt.MouseButton.LeftButton,
         Qt.KeyboardModifier.NoModifier,
     )
+    clicks = []
+    w.clicked.connect(lambda x, y: clicks.append((x, y)))
+    release = QMouseEvent(
+        QMouseEvent.Type.MouseButtonRelease,
+        QPointF(15, 12),
+        QPointF(15, 12),
+        Qt.MouseButton.LeftButton,
+        Qt.MouseButton.NoButton,
+        Qt.KeyboardModifier.NoModifier,
+    )
     w.mousePressEvent(press)
     w.mouseMoveEvent(move)
-    assert got == [(5.0, 2.0)]
+    w.mouseReleaseEvent(release)
+    assert got == [(5.0, 2.0)] and clicks == []  # a drag is not a click
+    w.mousePressEvent(press)
+    w.mouseReleaseEvent(release)
+    assert clicks == [(15.0, 12.0)]  # pick mode click
     w.set_input_enabled(False)
     w.mousePressEvent(press)
     w.mouseMoveEvent(move)
