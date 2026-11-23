@@ -12,6 +12,9 @@ DEFAULT_HOTKEYS = {
     "toggle_grid": "Ctrl+Alt+G",
     "toggle_ids": "Ctrl+Alt+I",
     "calibrate": "Ctrl+Alt+C",
+    "toggle_debug": "Ctrl+Alt+D",
+    "pick_player": "Ctrl+Alt+P",
+    "calibrate_hp": "Ctrl+Alt+H",
     "quit": "Ctrl+Alt+Q",
 }
 
@@ -34,6 +37,12 @@ class Settings:
     window_class: str | None = "UnityWndClass"
     scale_mode: str = "fit"  # see core.calibration.ScaleMode
     poll_ms: int = 100
+    # V2 vision
+    vision_enabled: bool = True
+    vision_ms: int = 250
+    debug_vision: bool = False  # draw detections + status banner (positions, OCR, confidence)
+    capture_method: str = "auto"  # see platform.capture.METHODS
+    hp_roi: list[float] | None = None  # HP % zone, fractions of the client area (x, y, w, h)
     hotkeys: dict[str, str] = field(default_factory=lambda: dict(DEFAULT_HOTKEYS))
 
     @classmethod

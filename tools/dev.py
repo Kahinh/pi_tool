@@ -5,6 +5,9 @@
 ./dev affected         run only tests affected by uncommitted changes (vs HEAD)
 ./dev graph            rebuild CODEGRAPH.md
 ./dev view IMG [x y w h] [--max 800]   crop+downscale an image to .cache/view/ for cheap viewing
+./dev render IMG [--ids]  calibrated grid drawn on a capture (needs sidecar .json)
+./dev digits           V2.4: learn HP digit templates from annotated captures, then validate
+./dev eval             V2.2/V2.4: precision/recall of circles + HP reads on annotated captures
 """
 
 from __future__ import annotations
@@ -116,6 +119,100 @@ def render(args: list[str]) -> int:
     return 0
 
 
+def _fixtures() -> list[tuple[Path, dict]]:
+    import json
+
+    screens = ROOT / "tests" / "fixtures" / "screens"
+    return [
+        (p.with_suffix(".png"), json.loads(p.read_text(encoding="utf-8")))
+        for p in sorted(screens.glob("*.json"))
+        if p.with_suffix(".png").exists()
+    ]
+
+
+def _hp_roi(img, ann):
+    x, y, w, h = ann["hp_roi"]
+    return img[y : y + h, x : x + w]
+
+
+def digits() -> int:
+    """Learn glyph templates from every capture with hp_pct + hp_roi; validated only if the
+    merged templates read back every capture correctly and cover all ten digits."""
+    import cv2
+
+    from pi_tool.vision import hp_ocr
+
+    caps = [(p, a) for p, a in _fixtures() if "hp_pct" in a and "hp_roi" in a]
+    samples = []
+    for p, a in caps:
+        try:
+            samples.append(hp_ocr.learn(_hp_roi(cv2.imread(str(p)), a), f"{a['hp_pct']}%"))
+        except ValueError as e:
+            print(f"skip {p.name}: {e}")
+    if not samples:
+        print("aucune capture avec hp_pct + hp_roi dans tests/fixtures/screens")
+        return 1
+    t = hp_ocr.Templates(hp_ocr.merge(samples))
+    if not t.complete:
+        missing = sorted(set("0123456789") - set(t.glyphs))
+        print(f"{len(samples)} captures; chiffres manquants : {' '.join(missing)}")
+    bad = [
+        (p.name, a["hp_pct"], r.value, r.reason)
+        for p, a in caps
+        if (r := hp_ocr.read_hp(_hp_roi(cv2.imread(str(p)), a), t)).value != a["hp_pct"]
+    ]
+    for row in bad:
+        print("FAIL {} expected={} got={} ({})".format(*row))
+    t = hp_ocr.Templates(t.glyphs, validated=t.complete and not bad and len(caps) >= 5)
+    hp_ocr.save_templates(t)
+    print(f"{len(t.glyphs)} glyphes -> {hp_ocr.DATA_DIR} validated={t.validated}")
+    return 0 if t.validated else 1
+
+
+def evaluate() -> int:
+    """Per-capture diff + overall precision/recall (write the numbers in docs/LIMITS.md)."""
+    import cv2
+
+    from pi_tool.core.calibration import from_annotation
+    from pi_tool.core.grid import CELL_COUNT
+    from pi_tool.core.map_model import load_map
+    from pi_tool.vision import hp_ocr
+    from pi_tool.vision.circles import detect_circles, split_teams
+
+    m, t = load_map(), hp_ocr.load_templates()
+    tp = fp = fn = hp_ok = hp_n = hp_none = 0
+    for p, a in _fixtures():
+        img = cv2.imread(str(p))
+        cal, _ = from_annotation(a)
+        line = [p.name]
+        if cal is not None and ("allies" in a or "enemies" in a):
+            got_a, got_e = split_teams(
+                detect_circles(img, cal, filter(m.walkable, range(CELL_COUNT)))
+            )
+            for want, got, tag in (
+                (set(a.get("allies", [])), got_a, "A"),
+                (set(a.get("enemies", [])), got_e, "E"),
+            ):
+                tp, fp, fn = tp + len(want & got), fp + len(got - want), fn + len(want - got)
+                if want != got:
+                    line.append(f"{tag} miss={sorted(want - got)} extra={sorted(got - want)}")
+        if "hp_pct" in a and "hp_roi" in a:
+            r = hp_ocr.read_hp(_hp_roi(img, a), t)
+            hp_n += 1
+            hp_ok += r.value == a["hp_pct"]
+            hp_none += r.value is None
+            if r.value != a["hp_pct"]:
+                line.append(f"HP {a['hp_pct']}->{r.value} ({r.reason})")
+        if len(line) > 1:
+            print(" ".join(line))
+    prec = tp / (tp + fp) if tp + fp else float("nan")
+    rec = tp / (tp + fn) if tp + fn else float("nan")
+    print(f"circles: precision={prec:.3f} recall={rec:.3f} (tp={tp} fp={fp} fn={fn})")
+    wrong = hp_n - hp_ok - hp_none
+    print(f"hp: {hp_ok}/{hp_n} exact, {hp_none} refused, {wrong} WRONG (must be 0)")
+    return 0
+
+
 def main(argv: list[str]) -> int:
     cmd, args = (argv[0], argv[1:]) if argv else ("check", [])
     if cmd == "check":
@@ -128,6 +225,10 @@ def main(argv: list[str]) -> int:
         return subprocess.call([PY, "tools/codegraph.py", "build"], cwd=ROOT)
     if cmd == "render":
         return render(args)
+    if cmd == "digits":
+        return digits()
+    if cmd == "eval":
+        return evaluate()
     if cmd == "view":
         return view(args)
     print(__doc__)
