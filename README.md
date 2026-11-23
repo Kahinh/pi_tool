@@ -33,7 +33,7 @@ uv sync --extra vision --extra win
 uv run pi-tool
 ```
 
-## Utilisation (V1 — en cours de développement)
+## Utilisation (V1 — à valider sur Windows)
 
 Lancer Dofus, puis `uv run pi-tool`. L'overlay suit automatiquement la fenêtre du jeu et se masque quand Dofus n'est pas au premier plan. Une icône dans la barre des tâches donne accès aux mêmes réglages.
 

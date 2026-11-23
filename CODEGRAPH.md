@@ -2,8 +2,83 @@
 Read this instead of opening files. `path:line` for each symbol.
 
 ## pi_tool — src/pi_tool/__init__.py — pi_tool — overlay PI Harebourg (Dofus Unity). Visual analysis only, no automated input.
+## pi_tool.__main__ — src/pi_tool/__main__.py
+uses: pi_tool.app.main
 ## pi_tool.app — src/pi_tool/app/__init__.py — Composition root: wires platform + vision + core, state/refresh loop, settings.
+## pi_tool.app.controller — src/pi_tool/app/controller.py — Overlay controller: follows the Dofus window, picks the calibration, rebuilds the scene.
+uses: pi_tool.app.settings, pi_tool.core, pi_tool.core.grid, pi_tool.core.map_model, pi_tool.core.scene, pi_tool.platform
+- :19 WHEEL_STEP = 1.02
+- :20 CALIB_HELP = 'Calibration : glisser = déplacer · molette = taille · Maj+m
+- :26 class WindowBackend(Protocol)
+  - .find_game(self) -> int | None
+  - .is_window(self, hwnd: int) -> bool
+  - .is_minimized(self, hwnd: int) -> bool
+  - .client_rect(self, hwnd: int) -> win32.Rect | None
+  - .foreground(self) -> int | None
+- :34 class Win32Backend
+  - .find_game(self) -> int | None
+- :49 class Overlay(Protocol)
+  - .set_shapes(self, shapes, banner=None) -> None
+  - .place(self, rect) -> None
+  - .show_overlay(self) -> None
+  - .hide(self) -> None
+  - .isVisible(self) -> bool
+  - .set_input_enabled(self, on: bool) -> None
+  - .winId(self)
+- :61 class Controller
+  - .tick(self) -> None
+  - .refresh(self) -> None
+  - .toggle(self, attr: str) -> None
+  - .set_opacity(self, value: float) -> None
+  - .start_calibration(self) -> None
+  - .drag(self, dx: float, dy: float) -> None
+  - .wheel(self, steps: int, x: float, y: float, shift: bool) -> None
+  - .nudge(self, dx: int, dy: int) -> None
+  - .accept_calibration(self) -> None
+  - .cancel_calibration(self) -> None
+## pi_tool.app.main — src/pi_tool/app/main.py — Entry point `pi-tool`: overlay + window tracking + hotkeys + tray menu.
+uses: pi_tool.app.controller, pi_tool.app.settings, pi_tool.core.map_model, pi_tool.platform, pi_tool.platform.hotkeys, pi_tool.platform.overlay
+ext: PySide6.QtCore, PySide6.QtGui, PySide6.QtWidgets
+- :18 OPACITIES = (0.2, 0.35, 0.5, 0.6, 0.8, 1.0)
+- :33 def build_tray(app: QApplication, ctrl: Controller) -> QSystemTrayIcon
+- :74 def main() -> int
+## pi_tool.app.map_editor — src/pi_tool/app/map_editor.py — `pi-tool-map CAPTURE.png` — survey the Harebourg map on a real capture (V1.1 / V1.4).
+uses: pi_tool.core, pi_tool.core.grid, pi_tool.core.map_model, pi_tool.core.scene, pi_tool.platform.overlay
+ext: PySide6.QtCore, PySide6.QtGui, PySide6.QtWidgets
+- :26 HELP = 'Clic : type · Maj+clic : ligne de vue · clic droit glissé :
+- :32 class MapEditor(QWidget)
+  - .paintEvent(self, _e) -> None
+  - .mousePressEvent(self, e) -> None
+  - .mouseMoveEvent(self, e) -> None
+  - .mouseReleaseEvent(self, _e) -> None
+  - .wheelEvent(self, e) -> None
+  - .keyPressEvent(self, e) -> None
+  - .save(self) -> None
+- :173 def main(argv: list[str] | None=None) -> int
+## pi_tool.app.settings — src/pi_tool/app/settings.py — User settings + config paths (JSON in %APPDATA%/pi_tool, override with PI_TOOL_CONFIG).
+- :10 DEFAULT_HOTKEYS = {'toggle_overlay': 'Ctrl+Alt+O', 'toggle_grid': 'Ctrl+Alt+G'
+- :19 def config_dir() -> Path
+- :27 class Settings
+  - .load(cls, path: Path | None=None) -> Settings
+  - .save(self, path: Path | None=None) -> None
 ## pi_tool.core — src/pi_tool/core/__init__.py — Pure logic: grid geometry, map model, PI engine. No I/O deps, no OS deps.
+## pi_tool.core.calibration — src/pi_tool/core/calibration.py — Calibration profiles (V1.3): save per game-area size, rescale to other sizes, manual tweaks.
+uses: pi_tool.core.grid
+- :22 SCALE_MODES = ('fit', 'height', 'width', 'stretch')
+- :26 class Profile
+  - .size_key(self) -> str
+- :35 def rescale(profile: Profile, rect: Rect, mode: ScaleMode='fit') -> Calibration — Map a profile measured on profile.rect onto another game-area rect.
+- :54 def pick(profiles: list[Profile], rect: Rect, mode: ScaleMode='fit') -> Calibration | None — Exact-size profile if any, else the one with the closest aspect ratio, rescaled.
+- :68 def upsert(profiles: list[Profile], new: Profile) -> list[Profile] — Replace the profile of the same size, keep the others.
+- :73 def default_calibration(rect: Rect) -> Calibration — Centered first guess (whole 560-cell grid fits the rect) before manual calibration.
+- :87 def translate(cal: Calibration, dx: float, dy: float) -> Calibration
+- :91 def scale_about(cal: Calibration, factor: float, pivot: Point) -> Calibration — Uniform zoom keeping `pivot` (screen px) fixed.
+- :100 def stretch_y(cal: Calibration, factor: float, pivot: Point) -> Calibration — Vertical-only scale (iso flattening) keeping `pivot` fixed.
+- :115 def cal_from_dict(d: dict) -> Calibration
+- :119 def save_profiles(profiles: list[Profile], path: Path) -> None
+- :125 def load_profiles(path: Path) -> list[Profile]
+- :135 def from_annotation(ann: dict) -> tuple[Calibration | None, float | None] — Calibration of an annotated capture + max fit residual in px (None if not fitted).
+- :157 def to_annotation(cal: Calibration) -> dict
 ## pi_tool.core.grid — src/pi_tool/core/grid.py — Dofus isometric grid: cell id <-> map coords (x, y) <-> screen pixels.
 - :15 MAP_WIDTH = 14
 - :16 MAP_ROWS = 40
@@ -23,12 +98,20 @@ Read this instead of opening files. `path:line` for each symbol.
   - .cell_at(self, px: float, py: float) -> int | None
 ## pi_tool.core.map_model — src/pi_tool/core/map_model.py — Harebourg map data (V1.1): which cells are walkable / targetable / block LoS.
 uses: pi_tool.core.grid
-- :15 DATA_DIR = Path(__file__).resolve().parents[3] / 'data' / 'maps'
-- :19 class MapModel
+- :16 DATA_DIR = Path(__file__).resolve().parents[3] / 'data' / 'maps'
+- :17 _SETS = ('outside', 'non_walkable', 'non_targetable', 'blocks_los')
+- :20 class CellState(Enum) — Editor-level category; maps onto the underlying sets.
+- :30 CYCLE = list(CellState)
+- :34 class MapModel
   - .in_arena(self, cell: int) -> bool
   - .walkable(self, cell: int) -> bool
   - .targetable(self, cell: int) -> bool
-- :37 def load_map(name: str='harebourg', path: Path | None=None) -> MapModel
+  - .state(self, cell: int) -> CellState
+  - .with_state(self, cell: int, state: CellState) -> MapModel
+  - .toggle_los(self, cell: int) -> MapModel
+- :82 def empty_map(name: str='harebourg') -> MapModel
+- :87 def load_map(name: str='harebourg', path: Path | None=None) -> MapModel
+- :101 def save_map(m: MapModel, path: Path | None=None) -> Path
 ## pi_tool.core.pi_engine — src/pi_tool/core/pi_engine.py — PI engine (V3.1/V3.2) — pure, no I/O besides loading the rule file.
 uses: pi_tool.core.grid
 - :17 RULES_PATH = Path(__file__).resolve().parents[3] / 'data' / 'pi_rules.jso
@@ -38,9 +121,82 @@ uses: pi_tool.core.grid
 - :40 class Rules
   - .load(cls, path: Path=RULES_PATH) -> Rules
 - :50 def target_cell(player: Coord, enemy: Coord, hp_pct: int, rules: Rules) -> TargetResult — Cell to aim at so that the PI-transformed hit lands on `enemy`. (V3.2)
+## pi_tool.core.scene — src/pi_tool/core/scene.py — Renderer-agnostic scene: list of shapes in screen px. Drawn by Qt (overlay) and cv2 (debug).
+uses: pi_tool.core.grid, pi_tool.core.map_model
+- :13 RGBA = tuple[int, int, int, int]
+- :17 class Shape
+- :27 class GridStyle
+- :34 FILL = {CellState.NORMAL: None, CellState.OBSTACLE: (213, 94, 0, 14
+- :41 OUTLINE = (255, 255, 255, 110)
+- :42 LOS_OUTLINE = (0, 0, 0, 220)
+- :49 def grid_scene(m: MapModel, cal: Calibration, style: GridStyle=GridStyle()) -> list[Shape]
 ## pi_tool.platform — src/pi_tool/platform/__init__.py — Windows-only: overlay window, game capture, window tracking, DPI. Import lazily.
+## pi_tool.platform.hotkeys — src/pi_tool/platform/hotkeys.py — Global hotkeys via RegisterHotKey + Qt native event filter. Observes keys only.
+uses: pi_tool.platform
+ext: PySide6.QtCore
+- :11 _MSG_TYPES = (b'windows_generic_MSG', b'windows_dispatcher_MSG')
+- :14 class HotkeyManager(QAbstractNativeEventFilter)
+  - .register(self, spec: str, callback: Callable[[], None]) -> bool
+  - .unregister_all(self) -> None
+  - .nativeEventFilter(self, event_type, message)
+## pi_tool.platform.overlay — src/pi_tool/platform/overlay.py — Transparent, topmost, click-through overlay window (V1.2) drawing a core.scene.
+uses: pi_tool.core.scene, pi_tool.platform
+ext: PySide6.QtCore, PySide6.QtGui, PySide6.QtWidgets
+- :17 _BASE_FLAGS = Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStay
+- :23 _PASSIVE_FLAGS = Qt.WindowType.WindowTransparentForInput | Qt.WindowType.Wind
+- :30 def paint_shapes(p: QPainter, shapes: list[Shape]) -> None — Draw scene shapes with an already-configured painter (px = painter units).
+- :45 class OverlayWindow(QWidget)
+  - .input_enabled(self) -> bool
+  - .set_shapes(self, shapes: list[Shape], banner: str | None=None) -> None
+  - .place(self, rect: win32.Rect) -> None
+  - .show_overlay(self) -> None
+  - .set_input_enabled(self, on: bool) -> None
+  - .paintEvent(self, _event) -> None
+  - .mousePressEvent(self, e) -> None
+  - .mouseMoveEvent(self, e) -> None
+  - .mouseReleaseEvent(self, _e) -> None
+  - .wheelEvent(self, e) -> None
+  - .keyPressEvent(self, e) -> None
+## pi_tool.platform.win32 — src/pi_tool/platform/win32.py — Thin ctypes wrappers over Win32 (no pywin32). Every function is a safe no-op off Windows.
+- :12 IS_WIN = sys.platform == 'win32'
+- :15 GWL_EXSTYLE = -20
+- :16 WS_EX_LAYERED = 524288
+- :17 WS_EX_TRANSPARENT = 32
+- :18 WS_EX_TOOLWINDOW = 128
+- :19 WS_EX_NOACTIVATE = 134217728
+- :20 WS_EX_TOPMOST = 8
+- :21 WDA_EXCLUDEFROMCAPTURE = 17
+- :22 HWND_TOPMOST = -1
+- :23 SWP_NOACTIVATE = 16
+- :24 SWP_SHOWWINDOW = 64
+- :25 WM_HOTKEY = 786
+- :27 DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 = -4
+- :55 def set_dpi_awareness() -> None — Per-monitor v2: all Win32 coordinates in physical px. Call before QApplication.
+- :67 def find_window(title_contains: str, class_name: str | None=None) -> int | None — First visible top-level window whose title contains `title_contains` (case-insensitive).
+- :92 def is_window(hwnd: int) -> bool
+- :96 def is_minimized(hwnd: int) -> bool
+- :100 def foreground_window() -> int | None
+- :104 def client_rect(hwnd: int) -> Rect | None — Client area in screen physical px, or None if unavailable.
+- :116 def style_overlay(hwnd: int, click_through: bool) -> None — Layered, no-activate, hidden from Alt-Tab; WS_EX_TRANSPARENT = clicks go to the game.
+- :128 def exclude_from_capture(hwnd: int) -> bool — Hide our overlay from screen captures (Win10 2004+), so V2 can capture the game clean.
+- :133 def place_topmost(hwnd: int, rect: Rect) -> None — Move/resize in physical px without activating.
+- :140 def register_hotkey(hk_id: int, mods: int, vk: int) -> bool — Thread-level hotkey (WM_HOTKEY posted to the GUI thread). Observes keys only.
+- :145 def unregister_hotkey(hk_id: int) -> None
+- :150 def hotkey_id_from_msg(message_ptr: int) -> int | None — WM_HOTKEY id from a native MSG*, else None.
+- :158 def parse_hotkey(spec: str) -> tuple[int, int] — 'Ctrl+Alt+G' -> (mods, vk). Letters, digits, F1-F12.
 ## pi_tool.vision — src/pi_tool/vision/__init__.py — Image analysis (numpy/OpenCV): circle detection, HP OCR. Input = BGR ndarray. No OS deps.
+## pi_tool.vision.render — src/pi_tool/vision/render.py — Draw a core.scene onto a BGR image (debug renders, comparison with real captures).
+uses: pi_tool.core.scene
+ext: cv2, numpy
+- :11 def draw_scene(img: np.ndarray, shapes: list[Shape]) -> np.ndarray — Alpha-blend shapes onto a copy of `img` (BGR uint8).
+- :33 def content_rect(img: np.ndarray, threshold: int=12) -> tuple[int, int, int, int] — Bounding rect (x, y, w, h) of the non-black area: strips letterbox/pillarbox bars.
 
 ## tests
+- tests/test_calibration.py → pi_tool.core, pi_tool.core.grid
+- tests/test_controller.py → pi_tool.app.controller, pi_tool.app.settings, pi_tool.core, pi_tool.core.map_model
 - tests/test_core_data.py → pi_tool.core.map_model, pi_tool.core.pi_engine
 - tests/test_grid.py → pi_tool.core.grid
+- tests/test_map_model.py → pi_tool.core.map_model
+- tests/test_qt.py → pi_tool.app.map_editor, pi_tool.core.grid, pi_tool.core.map_model, pi_tool.core.scene, pi_tool.platform.overlay
+- tests/test_scene.py → pi_tool.core.grid, pi_tool.core.map_model, pi_tool.core.scene
+- tests/test_win32.py → pi_tool.platform

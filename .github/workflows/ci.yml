@@ -6,10 +6,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
-      - run: uv sync --extra vision
+      - run: sudo apt-get install -y -qq libegl1 libxkbcommon0
+      - run: uv sync --extra vision --extra win
       - run: uv run ruff check . && uv run ruff format --check .
       - run: uv run python tools/codegraph.py check
       - run: uv run pytest
+        env: { QT_QPA_PLATFORM: offscreen }
   windows:
     runs-on: windows-latest
     steps:
@@ -17,3 +19,4 @@ jobs:
       - uses: astral-sh/setup-uv@v5
       - run: uv sync --extra vision --extra win
       - run: uv run pytest -m "not win"
+        env: { QT_QPA_PLATFORM: offscreen }
