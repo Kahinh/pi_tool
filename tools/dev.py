@@ -86,6 +86,36 @@ def view(args: list[str]) -> int:
     return 0
 
 
+def render(args: list[str]) -> int:
+    """V1.4: compare the grid to a real capture; prints the calibration fit residual."""
+    import json
+
+    import cv2
+
+    from pi_tool.core.calibration import from_annotation
+    from pi_tool.core.map_model import load_map
+    from pi_tool.core.scene import GridStyle, grid_scene
+    from pi_tool.vision.render import draw_scene
+
+    img_path = Path(args[0])
+    side = img_path.with_suffix(".json")
+    if not side.exists():
+        print(f"no sidecar {side} (calibrate it with: uv run pi-tool-map {img_path})")
+        return 1
+    cal, residual = from_annotation(json.loads(side.read_text(encoding="utf-8")))
+    if cal is None:
+        print("sidecar has no calib_points/calibration")
+        return 1
+    img = cv2.imread(str(img_path))
+    style = GridStyle(show_ids="--ids" in args, show_outside=True)
+    out = ROOT / ".cache" / "view" / f"{img_path.stem}_grid.png"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    cv2.imwrite(str(out), draw_scene(img, grid_scene(load_map(), cal, style)))
+    res = f" fit_residual_max={residual:.2f}px" if residual is not None else ""
+    print(f"{out}{res} cell_w={2 * abs(cal.u[0]):.1f}px")
+    return 0
+
+
 def main(argv: list[str]) -> int:
     cmd, args = (argv[0], argv[1:]) if argv else ("check", [])
     if cmd == "check":
@@ -96,6 +126,8 @@ def main(argv: list[str]) -> int:
         return affected()
     if cmd == "graph":
         return subprocess.call([PY, "tools/codegraph.py", "build"], cwd=ROOT)
+    if cmd == "render":
+        return render(args)
     if cmd == "view":
         return view(args)
     print(__doc__)
