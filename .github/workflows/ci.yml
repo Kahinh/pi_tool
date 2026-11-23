@@ -1,0 +1,19 @@
+name: ci
+on: [push, pull_request]
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync --extra vision
+      - run: uv run ruff check . && uv run ruff format --check .
+      - run: uv run python tools/codegraph.py check
+      - run: uv run pytest
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync --extra vision --extra win
+      - run: uv run pytest -m "not win"

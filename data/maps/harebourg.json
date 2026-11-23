@@ -1,0 +1,10 @@
+{
+  "name": "harebourg",
+  "validated": false,
+  "_note": "V1.1 (#4): fill from reference captures. Cell ids per skill `grid`. Each list must be checked cell by cell.",
+  "reference_captures": [],
+  "outside": [],
+  "non_walkable": [],
+  "non_targetable": [],
+  "blocks_los": []
+}
