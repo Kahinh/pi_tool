@@ -1,0 +1,42 @@
+[project]
+name = "pi-tool"
+version = "0.0.0"
+description = "Overlay d'aide visuelle (PI) pour le combat du Comte Harebourg — Dofus Unity. Analyse visuelle uniquement, aucun clic automatique."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.optional-dependencies]
+vision = ["numpy>=1.26", "opencv-python-headless>=4.9"]
+win = [
+    "PySide6>=6.6",
+    "mss>=9",
+    "pywin32>=306; sys_platform == 'win32'",
+]
+
+[dependency-groups]
+dev = ["pytest>=8", "ruff>=0.6"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/pi_tool"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q --no-header -rfE --tb=short"
+markers = [
+    "win: needs Windows + a real display (skipped elsewhere)",
+    "fixtures: uses real annotated screenshots in tests/fixtures/screens",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests", "tools"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM", "RUF"]
+ignore = ["RUF001", "RUF002", "RUF003"]  # French text: allow typographic chars

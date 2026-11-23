@@ -1,0 +1,9 @@
+{
+  "validated": false,
+  "_note": "V3.1 (#13): set validated=true ONLY when every rule below is backed by observations in docs/research/pi_observations.csv.",
+  "hp_thresholds": null,
+  "rotation_per_threshold": null,
+  "rotation_center": null,
+  "rounding": null,
+  "extra_dependencies": null
+}

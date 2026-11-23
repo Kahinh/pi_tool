@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# Dev entry point. See tools/dev.py. Usage: ./dev [check|test|affected|graph|view]
+exec uv run --quiet --extra vision python "$(dirname "$0")/tools/dev.py" "$@"
